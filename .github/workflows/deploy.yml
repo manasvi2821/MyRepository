@@ -1,0 +1,43 @@
+name: Deploy Flutter Web TODO app
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Deploy via SSH
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_KEY }}
+        script: |
+          # Clean up old container and project
+          docker stop todo-app || true
+          docker rm todo-app || true
+          rm -rf flutter-todo-app
+
+          # Clone the external GitHub repo
+          git clone https://github.com/Pururaj069/todoapp flutter-todo-app
+          cd flutter-todo-app
+
+          # Add Dockerfile if it's not present
+          echo 'FROM cirrusci/flutter:stable as build
+          WORKDIR /app
+          COPY . .
+          RUN flutter pub get
+          RUN flutter build web
+
+          FROM nginx:alpine
+          COPY --from=build /app/build/web /usr/share/nginx/html
+          EXPOSE 80
+          CMD ["nginx", "-g", "daemon off;"]' > Dockerfile
+
+          # Build and run Docker container
+          docker build -t todo-app .
+          docker run -d -p 80:80 --name todo-app todo-app
